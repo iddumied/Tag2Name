@@ -9,7 +9,7 @@ class Name
   attr_reader :track, :artist, :album
 
   def inspect
-    return "#{sprntf("%02d", @track)} #{@title} - #{@artist} - #{@album}.mp3"
+    return "#{@title} - #{@artist} - #{@album}.mp3"
   end
 end
 
@@ -36,7 +36,7 @@ class MusicFile
     album = @file.id3v2_tag.album
     album = @file.id3v1_tag.album if album.nil?
 
-    if artist.nil? or title.nil? or track.nil? or album.nil?
+    if artist.nil? or title.nil? or album.nil?
       return @file.name.split("/").last
     else
       return Name.new(track, title, artist, album).inspect
@@ -44,25 +44,75 @@ class MusicFile
   end
 
   def save
-    @file.cose
-    system("mv #{@path + @old_name} #{@path + @new_name}")
+    @file.close
+    unless @old_name == @new_name
+      File.rename(@path + @old_name, @path + @new_name)
+      return true
+    else
+      return false
+    end
   end
 end
 
 class RecursiveDir
-  def initialize path, recursive = true
+  def initialize path, recursive = true, stats = true
     path += "/" unless path.each_char.to_a.last == "/"
+    @log = File.new("Tag2NameLog", "a")
+    @log.puts "="*100
+    @log.puts "Path: #{ path }\n\n"
+
+    @error = 0
+    @success = 0
+    @warnings = 0
+    @dirs = 0
+    recursive(path, recursive, stats)
+  
+    if stats 
+      puts "\nProgressed Dirs:\t#{ @dirs }"
+      puts "Progressed Files:\t#{ @error + @success + @warnings }"
+      puts "\tSucesses:\t#{ @success }"
+      puts "\tWarnings:\t#{ @warnings }"
+      puts "\tErrors:\t\t#{ @error }"
+    end
+
+    @log.puts "\nProgressed Dirs:\t#{ @dirs }"
+    @log.puts "Progressed Files:\t#{ @error + @success }"
+    @log.puts "\tSucesses:\t#{ @success }"
+    @log.puts "\tWarnings:\t#{ @warnings }"
+    @log.puts "\tErrors:\t\t#{ @error }\n\n\n\n"
+    @log.close
+
+  end
+
+  def recursive path, recursive = true, stats = true
+    path += "/" unless path.each_char.to_a.last == "/"
+    @dirs += 1
 
     Dir.new(path).entries.each do |entrie|
       if [".",".."].include? entrie
         #do nothingh
       elsif Dir.exists?(path + entrie) and recursive
-        puts "=> entering #{path + entrie}" if $VERBOSE
-        RecursiveDir.new(path + entrie)
+        puts "[DD] => entering #{ path + entrie }" if $VERBOSE
+        @log.puts "[DD] => entering #{ path + entrie }"
+        recursive(path + entrie)
+
       elsif entrie.split(".").last == "mp3"
-        music_file = MusicFile.new(path, entrie) 
-        music_file.save
-        puts "#{entrie} => #{music_file.new_name}" if $VERBOSE
+        begin
+          music_file = MusicFile.new(path, entrie) 
+          if music_file.save
+            puts "[II] #{ entrie } => #{ music_file.new_name }" if $VERBOSE
+            @log.puts "[II] #{ entrie } => #{ music_file.new_name }"
+            @success += 1
+          else
+            puts "[WW] Nothing Changed: #{ entrie }" if $VERBOSE
+            @log.puts "[WW] Nothing Changed: #{ entrie }"
+            @warnings += 1
+          end
+        rescue Exception => e
+          puts "[EE] #{ e } : #{ entrie }" if $VERBOSE
+          @log.puts "[EE] #{ e } : #{ entrie }" 
+          @error += 1
+        end
       end
     end
   end
@@ -90,12 +140,13 @@ if __FILE__ == $0
       puts opts
       exit
     end
-
-    if options[:path].nil? or ARGV.empty?
-      puts opts
-      exit
-    end
+    
   end.parse!
+
+  if options[:path].nil? or options.empty?
+    puts "ERROR! try --help"
+    exit
+  end
 
   $VERBOSE = true if options[:verbose]
   RecursiveDir.new(options[:path], options[:recursive])
