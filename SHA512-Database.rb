@@ -52,7 +52,7 @@ class Database
       @database.each { |k, v| file.puts(k + v) }
       file.close
       @log.puts "[II] #{ @database.length } Database enries writtten to #{ fname }"
-      @log.puts "[II] #{ @database.length } Database enries writtten to #{ fname }" 
+      puts "[II] #{ @database.length } Database enries writtten to #{ fname }" if $VERBOSE
     rescue Exception => e
       @log.puts "[EE] #{ e } while saving Database to file #{ fname }"
       puts "[EE] #{ e } while saving Database to file #{ fname }" if $VERBOSE

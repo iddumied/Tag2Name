@@ -175,6 +175,7 @@ if __FILE__ == $0
     puts opts
     exit
   end
+  pwd = Dir.pwd + "/"
   
   m3u = M3U.new opts[:target]
 
@@ -185,7 +186,7 @@ if __FILE__ == $0
       exit
     end
 
-    m3u.restore opts["database"] unless opts["database"].nil?
+    m3u.restore pwd + opts["database"] unless opts["database"].nil?
     m3u.restore opts["database-source"] unless opts["database-source"].nil?
 
     m3u.save_database opts["database-target"] unless opts["create-database"].nil?

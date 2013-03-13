@@ -1,21 +1,25 @@
+#encoding: UTF-8
 require 'taglib'
 require 'optparse'
 
 class Name
-  def initialize track, title, artist, album
-    @track, @title, @artist, @album = track, title, artist, album
+  def initialize title, artist, type
+    @title, @artist, @type = title, artist, type
   end
 
-  attr_reader :track, :artist, :album
+  attr_reader :title, :artist
 
   def inspect
-    return "#{@title} - #{@artist} - #{@album}.mp3"
+    return "#{ @artist } - #{ @title }.#{ @type }".gsub("/", "|")
   end
 end
 
 class MusicFile
   def initialize path, name
-    @file = TagLib::MPEG::File.new(path + name)
+    @type = "mp3" if name.end_with? ".mp3"
+    @type = "flac" if name.end_with? ".flac"
+    @file = TagLib::MPEG::File.new(path + name) if name.end_with? ".mp3"
+    @file = TagLib::FLAC::File.new(path + name) if name.end_with? ".flac"
     @path = path
     @old_name = name
     @new_name = read_tags
@@ -24,22 +28,18 @@ class MusicFile
   attr_reader :new_name
 
   def read_tags
-    artist = @file.id3v2_tag.artist
-    artist = @file.id3v1_tag.artist if artist.nil?
+    artist = @file.id3v2_tag.artist unless @file.id3v2_tag.nil?
+    artist = @file.id3v1_tag.artist if !@file.id3v1_tag.nil? and  artist.nil?
+    artist = @file.tag.artist       if !@file.tag.nil?       and  artist.nil?
     
-    title = @file.id3v2_tag.title
-    title = @file.id3v1_tag.title if title.nil?
+    title = @file.id3v2_tag.title unless @file.id3v2_tag.nil?
+    title = @file.id3v1_tag.title if !@file.id3v1_tag.nil? and title.nil?
+    title = @file.tag.title       if !@file.tag.nil?       and title.nil?
 
-    track = @file.id3v2_tag.track
-    track = @file.id3v1_tag.track if track.nil?
-
-    album = @file.id3v2_tag.album
-    album = @file.id3v1_tag.album if album.nil?
-
-    if artist.nil? or title.nil? or album.nil?
+    if artist.nil? or title.nil?
       return @file.name.split("/").last
     else
-      return Name.new(track, title, artist, album).inspect
+      return Name.new(title, artist, @type).inspect
     end
   end
 
@@ -96,7 +96,7 @@ class RecursiveDir
         @log.puts "[DD] => entering #{ path + entrie }"
         recursive(path + entrie)
 
-      elsif entrie.split(".").last == "mp3"
+      elsif entrie.split(".").last == "mp3" or entrie.split(".").last == "flac"
         begin
           music_file = MusicFile.new(path, entrie) 
           if music_file.save

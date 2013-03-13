@@ -69,7 +69,7 @@ class Database
       @database.database.each { |k, a| a.each { |v| file.puts(k + v) } }
       file.close
       @log.puts "[II] #{ @database.database.length } Database enries writtten to #{ fname }"
-      @log.puts "[II] #{ @database.database.length } Database enries writtten to #{ fname }" 
+      puts "[II] #{ @database.database.length } Database enries writtten to #{ fname }" if $VERBOSE
     rescue Exception => e
       @log.puts "[EE] #{ e } while saving Database to file #{ fname }"
       puts "[EE] #{ e } while saving Database to file #{ fname }" if $VERBOSE
@@ -97,23 +97,29 @@ class DoublicateFinder
     @log.puts "Time: #{ Time.now }\nPath: #{ path }\nSpecial Doublicates Dir: #{ dir }"
 
     @database = Database.new path, @log
-    @doublicates = []
-    @removes = []
+    @doublicates = { }
+    @removes = { }
 
     @database.database.each do |sha512sum, ary|
       next if ary.length <= 1
-      @doublicates << ary
+      @doublicates[sha512sum] = ary
+      
       @log.puts "[II] found following doublicates:"
       ary.each { |file| @log.puts "[II]\t#{ file }" }
       if $VERBOSE
         puts "[II] found following doublicates:"
         ary.each { |file| puts "[II]\t#{ file }" }
       end
+
+      allindir = true
+      ary.each { |file| allindir = false unless file.include? dir }
+      next if allindir == true
     
       unless dir.nil?
         ary.each do |file|
           if file.include? dir
-            @removes << file 
+            @removes[sha512sum] = Array.new if @removes[sha512sum].nil?
+            @removes[sha512sum] << file 
             @log.puts "[II] found Doublicate in #{ dir }: #{ file }"
             puts "[II] found Doublicate in #{ dir }: #{ file }" if $VERBOSE
           end
@@ -124,10 +130,10 @@ class DoublicateFinder
   end
   attr_reader :database
 
-  def print_removes; @removes.each { |file| puts file }; end
+  def print_removes; @removes.each { |sha512sum, ary| ary.each { |file| puts file } }; end
   
   def print_doublicates
-    @doublicates.each do |array|
+    @doublicates.each do |sha512sum, array|
       puts "="*100
       array.each { |file| puts file }
     end
@@ -135,24 +141,29 @@ class DoublicateFinder
   end
 
   def remove
-    @removes.each do |file|
-      begin
-        File.delete(file)
-        @log.puts "[II] removed #{ file }"
-        puts "[II] removed #{ file }" if $VERBOSE
-      rescue Exception => e
-        @log.puts "[EE] #{ e } while removing #{ file }"
-        puts "[EE] #{ e } while removing #{ file }" if $VERBOSE
+    @removes.each do |sha512sum, ary|
+      ary.each do |file|
+        begin
+          File.delete(file)
+          @doublicates[sha512sum].delete(file)
+          @database[sha512sum].delete(file)
+          @log.puts "[II] removed #{ file }"
+          puts "[II] removed #{ file }" if $VERBOSE
+        rescue Exception => e
+          @log.puts "[EE] #{ e } while removing #{ file }"
+          puts "[EE] #{ e } while removing #{ file }" if $VERBOSE
+        end
       end
     end
-    @removes = []
+    @removes = { }
   end
 
   def select
     menu = "(q)\tquit selection\n(n)\tnext Doublicates"
 
-    @doublicates.each do |ary|
+    @doublicates.each do |sha512sum, ary|
       while true
+        break if ary.length <= 1
         puts menu
         ary.each_with_index { |file, i| puts "(#{ i })\t#{ file }" }
         print "Eingabe: "
@@ -164,21 +175,20 @@ class DoublicateFinder
         elsif /^[0-9]+$/ =~ eingabe
           eingabe = eingabe.to_i
           if eingabe < ary.length
-            @removes << ary[eingabe]
+            @removes[sha512sum] = Array.new if @removes[sha512sum].nil?
+            @removes[sha512sum] << ary[eingabe]
             @log.puts "[II] added to removes #{ ary[eingabe] }"
             ary.delete_at(eingabe)
-            break if ary.length <= 1
           end
         end
       end
     end
-    @doublicates.delete(nil)
   end
   
   def write_removes name
     begin
       file = File.new(name, "w")
-      @removes.each { |r| file.puts r }
+      @removes.each { |k, a| a.each { |v| file.puts(k + v) } }
       file.close
       @log.puts "[II] to-remove-list written to file: #{ name }"
       puts "[II] to-remove-list written to file: #{ name }" if $VERBOSE
@@ -192,9 +202,14 @@ class DoublicateFinder
     begin
       File.open(name).each_line do |line|
         line.chop!
-        @removes << line
-        @log.puts "[II] loaded remove #{ line }"
-        puts "[II] loaded remove #{ line }" if $VERBOSE
+
+        sha512sum, file = line[0,128], line[128, line.length - 128]
+        @removes[sha512sum] = Array.new if @removes[sha512sum].nil?
+        @doublicates[sha512sum].delete(file)
+        @removes[sha512sum].delete(file)
+        @removes[sha512sum] << file
+        @log.puts "[II] loaded remove #{ file }"
+        puts "[II] loaded remove #{ file }" if $VERBOSE
       end
     rescue Exception => e
       @log.puts "[EE] #{ e } while loading to-remove-list: #{ name }"
@@ -217,6 +232,7 @@ if __FILE__ == $0
     on        "--remove",           "remove Doublicated Files"
     on        "--remove-dir",       "Directory from wich doublicates should be removed",            :argument => true
     on "-i",  "--interactive",      "use interactive mode"
+    on        "--database-only",   "Only create the Database and exit"
   end
 
   opts.parse
@@ -231,13 +247,27 @@ if __FILE__ == $0
     exit
   end
 
+  unless opts["database-only"].nil?
+    if opts["database-source"].nil? or opts["create-database"].nil? or opts["database-target"].nil?
+      puts opts
+      exit
+    end
+
+    log = File.open("DoublicateFinderLog", "a")
+    log.puts "\n\n" + "="*100
+    log.puts "Time: #{ Time.now }\nCreate Database: #{ opts["database-target"] } form #{ opts["database-source"] }"
+
+    database = Database.new opts["database-source"], log
+    database.save opts["database-target"]
+    exit
+  end
+
   double = DoublicateFinder.new opts["database"], opts["remove-dir"] unless opts["database"].nil?
   double = DoublicateFinder.new opts["database-source"], opts["remove-dir"] unless opts["database-source"].nil?
-  double.database.save opts["database-target"] unless opts["create-database"].nil?
 
   if opts.interactive?
     ARGV.clear
-    menu = "(q)\tQuit Programm\n(p)\tPrint to-remove-list\n(s)\tSelect Doublicates to remove\n"
+    menu = "(q)\tQuit Programm\n(p)\tPrint to-remove-list\n(d)\tPrint Doublicates\n(s)\tSelect Doublicates to remove\n"
     menu += "(w)\tWrite to-remove-list\n(l)\tLoad to-remove-list\n(r)\tRemove all files in to-remove-list\nEingabe: "
 
     while true
@@ -247,8 +277,11 @@ if __FILE__ == $0
       case eingabe
         when "q" then exit
         when "p" then double.print_removes
+        when "d" then double.print_doublicates
         when "s" then double.select
-        when "r" then double.remove
+        when "r" 
+          double.remove
+          double.database.save opts["database-target"] unless opts["create-database"].nil?
         when "w"
           print "Filename: "
           name = gets.chop
@@ -263,4 +296,5 @@ if __FILE__ == $0
 
   double.remove if opts.remove?
   double.print_removes if opts.print?
+  double.database.save opts["database-target"] unless opts["create-database"].nil?
 end
