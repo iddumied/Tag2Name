@@ -1,5 +1,5 @@
 #encoding: UTF-8
-require 'taglib'
+require 'taglib2'
 require 'optparse'
 
 class Name
@@ -18,23 +18,18 @@ class MusicFile
   def initialize path, name
     @type = "mp3" if name.end_with? ".mp3"
     @type = "flac" if name.end_with? ".flac"
-    @file = TagLib::MPEG::File.new(path + name) if name.end_with? ".mp3"
-    @file = TagLib::FLAC::File.new(path + name) if name.end_with? ".flac"
+    @file = TagLib::File.new(path + name) if name.end_with? ".mp3"
+    @file = TagLib::File.new(path + name) if name.end_with? ".flac"
     @path = path
     @old_name = name
-    @new_name = read_tags
+    @new_name = read_
   end
   
   attr_reader :new_name
 
-  def read_tags
-    artist = @file.id3v2_tag.artist unless @file.id3v2_tag.nil?
-    artist = @file.id3v1_tag.artist if !@file.id3v1_tag.nil? and  artist.nil?
-    artist = @file.tag.artist       if !@file.tag.nil?       and  artist.nil?
-    
-    title = @file.id3v2_tag.title unless @file.id3v2_tag.nil?
-    title = @file.id3v1_tag.title if !@file.id3v1_tag.nil? and title.nil?
-    title = @file.tag.title       if !@file.tag.nil?       and title.nil?
+  def read_
+    artist = @file.artist unless @file.nil?
+    title = @file.title unless @file.nil?
 
     if artist.nil? or title.nil?
       return @file.name.split("/").last
